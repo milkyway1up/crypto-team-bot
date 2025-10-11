@@ -623,7 +623,7 @@ async def history_cmd(interaction: discord.Interaction,
         usd = agg[s]["usd"]; qty = agg[s]["qty"]
         avg = (usd / qty) if qty else 0.0
         price = prices.get(s)
-        icon_url = f"https://cryptoicons.org/api/icon/{s.lower()}/128"
+        icon_url = f"https://cryptoicons.org/api/icon/{s.lower()}/128.png"
 
         if price is None or qty <= 0:
             e = Embed(
