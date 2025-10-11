@@ -623,9 +623,17 @@ async def history_cmd(interaction: discord.Interaction,
         usd = agg[s]["usd"]; qty = agg[s]["qty"]
         avg = (usd / qty) if qty else 0.0
         price = prices.get(s)
+        icon_url = f"https://cryptoicons.org/api/icon/{s.lower()}/128"
+
         if price is None or qty <= 0:
-            e = Embed(title=f"{s}", description="Price unavailable", colour=Colour.dark_grey())
+            e = Embed(
+                title=f"{s} / USD",
+                description="Price unavailable from CoinGecko.",
+                colour=Colour.dark_grey()
+            )
             e.add_field(name="Avg Cost", value=f"${avg:.6f}", inline=True)
+            e.add_field(name="Holdings", value=f"${usd:.2f}", inline=True)
+            e.set_thumbnail(url=icon_url)
             per_coin_embeds.append(e)
             continue
 
@@ -633,12 +641,18 @@ async def history_cmd(interaction: discord.Interaction,
         pnl_usd = value - usd
         pnl_pct = ((price / avg) - 1) * 100 if avg > 0 else 0.0
         colour = Colour.green() if pnl_usd >= 0 else Colour.red()
+        price_str = f"${price:,.6f}"
+        change_str = f"{pnl_pct:+.2f}%"
 
-        e = Embed(title=f"{s}", colour=colour)
+        e = Embed(
+            title=f"{s} / USD",
+            description=f"**{price_str}**  ({change_str})",
+            colour=colour
+        )
+        e.add_field(name="Value", value=f"${value:,.2f}", inline=True)
+        e.add_field(name="P/L", value=f"{pnl_usd:+.2f}", inline=True)
         e.add_field(name="Avg Cost", value=f"${avg:.6f}", inline=True)
-        e.add_field(name="Price", value=f"${price:.6f}", inline=True)
-        e.add_field(name="Value", value=f"${value:.2f}", inline=True)
-        e.add_field(name="P/L", value=f"{pnl_usd:+.2f} ({pnl_pct:+.2f}%)", inline=True)
+        e.set_thumbnail(url=icon_url)
         per_coin_embeds.append(e)
 
     # Send totals + up to 9 coin embeds per message (Discord limit)
