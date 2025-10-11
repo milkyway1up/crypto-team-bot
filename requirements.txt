@@ -1,0 +1,7 @@
+﻿discord.py
+python-dotenv
+aiohttp
+aiosqlite
+pandas
+matplotlib
+mplfinance
