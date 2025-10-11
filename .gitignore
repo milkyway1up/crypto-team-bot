@@ -1,0 +1,15 @@
+# Virtual environments
+.venv/
+venv/
+__pycache__/
+
+# Environment and secret files
+.env
+
+# Databases
+*.sqlite
+*.db
+
+# Backups and logs
+*.bak*
+*.log
