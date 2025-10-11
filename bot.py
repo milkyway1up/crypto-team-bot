@@ -39,7 +39,7 @@ TEST_ALERT_2PCT = (os.getenv("TEST_ALERT_2PCT", "true").lower() == "true")
 DB_PATH = "/opt/crypto-bot/crypto_bot.sqlite"       # SQLite file
 
 # Universe / filtering for /pick
-TOP_N = 100
+TOP_N = 1000
 EXCLUDE_STABLE = {
     "USDT","USDC","DAI","FDUSD","PYUSD","TUSD","USDP","GUSD","EURS","EURT","XAUT",
     "PAXG","USDE","USDX","FRAX","USTC"
@@ -100,11 +100,26 @@ async def top_markets(session):
     if _market_cache and now - _market_cache_time < 300:
         return _market_cache
 
-    url = (
-        "https://api.coingecko.com/api/v3/coins/markets"
-        f"?vs_currency=usd&order=market_cap_desc&per_page={TOP_N}&page=1&sparkline=false"
-    )
-    data = await cg_get(session, url)
+    page_size = 250
+    needed_pages = max(1, math.ceil(TOP_N / page_size))
+    markets: list[dict] = []
+
+    for page in range(1, needed_pages + 1):
+        remaining = TOP_N - len(markets)
+        if remaining <= 0:
+            break
+        per_page = page_size if remaining > page_size else remaining
+        url = (
+            "https://api.coingecko.com/api/v3/coins/markets"
+            f"?vs_currency=usd&order=market_cap_desc&per_page={per_page}&page={page}&sparkline=false"
+        )
+        data = await cg_get(session, url)
+        markets.extend(data or [])
+        if len(markets) >= TOP_N or not data:
+            break
+        await asyncio.sleep(0.4)
+
+    data = markets[:TOP_N]
     out = []
     for c in data:
         sym = (c.get("symbol") or "").upper()
@@ -336,12 +351,13 @@ async def post_in_announce_channel(content: str | None = None, *, embed: discord
 
 async def fetch_prices_map(target_syms: set[str]) -> dict[str, float]:
     """
-    Return {SYMBOL: latest_price} for up to top 750 by mktcap.
+    Return {SYMBOL: latest_price} for up to top 1000 by mktcap.
     """
     target_syms = {s.upper() for s in target_syms}
     out: dict[str, float] = {}
     async with aiohttp.ClientSession() as session:
-        for page in (1,2,3):
+        page_count = max(1, math.ceil(TOP_N / 250))
+        for page in range(1, page_count + 1):
             data = await cg_get(
                 session,
                 f"https://api.coingecko.com/api/v3/coins/markets"
@@ -371,7 +387,8 @@ async def get_symbol_id_map() -> dict[str, str]:
 
     out: dict[str,str] = {}
     async with aiohttp.ClientSession() as session:
-        for page in (1,2,3):
+        page_count = max(1, math.ceil(TOP_N / 250))
+        for page in range(1, page_count + 1):
             data = await cg_get(session,
                 f"https://api.coingecko.com/api/v3/coins/markets"
                 f"?vs_currency=usd&order=market_cap_desc&per_page=250&page={page}&sparkline=false")
@@ -431,7 +448,6 @@ def build_alert_embed(sym: str, price: float, cost: float, qty: float, multiple:
     e.add_field(name="Price", value=f"${price:,.6f}", inline=True)
     e.add_field(name="Avg Cost", value=f"${cost:,.6f}", inline=True)
     e.add_field(name="P/L %", value=f"{pct:+.2f}%", inline=True)
-    e.add_field(name="Qty Tracked", value=f"{qty:g}", inline=True)
     e.set_footer(text="Next alert when it crosses the next multiple")
     return e
 
@@ -609,9 +625,7 @@ async def history_cmd(interaction: discord.Interaction,
         price = prices.get(s)
         if price is None or qty <= 0:
             e = Embed(title=f"{s}", description="Price unavailable", colour=Colour.dark_grey())
-            e.add_field(name="Qty", value=f"{qty:g}", inline=True)
             e.add_field(name="Avg Cost", value=f"${avg:.6f}", inline=True)
-            e.add_field(name="Cost", value=f"${usd:.2f}", inline=True)
             per_coin_embeds.append(e)
             continue
 
@@ -621,11 +635,9 @@ async def history_cmd(interaction: discord.Interaction,
         colour = Colour.green() if pnl_usd >= 0 else Colour.red()
 
         e = Embed(title=f"{s}", colour=colour)
-        e.add_field(name="Qty", value=f"{qty:g}", inline=True)
         e.add_field(name="Avg Cost", value=f"${avg:.6f}", inline=True)
         e.add_field(name="Price", value=f"${price:.6f}", inline=True)
         e.add_field(name="Value", value=f"${value:.2f}", inline=True)
-        e.add_field(name="Cost", value=f"${usd:.2f}", inline=True)
         e.add_field(name="P/L", value=f"{pnl_usd:+.2f} ({pnl_pct:+.2f}%)", inline=True)
         per_coin_embeds.append(e)
 
