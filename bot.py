@@ -68,6 +68,7 @@ GUILD_OBJ = discord.Object(id=GUILD_ID) if GUILD_ID else None
 
 _market_cache = None
 _market_cache_time = 0
+_symbol_image_map: dict[str, str] = {}
 
 async def cg_get(session, url, retries=3):
     """
@@ -355,6 +356,7 @@ async def fetch_prices_map(target_syms: set[str]) -> dict[str, float]:
     """
     target_syms = {s.upper() for s in target_syms}
     out: dict[str, float] = {}
+    global _symbol_image_map
     async with aiohttp.ClientSession() as session:
         page_count = max(1, math.ceil(TOP_N / 250))
         for page in range(1, page_count + 1):
@@ -367,6 +369,9 @@ async def fetch_prices_map(target_syms: set[str]) -> dict[str, float]:
                 sym = (m.get("symbol") or "").upper()
                 if sym in target_syms and sym not in out:
                     out[sym] = float(m["current_price"])
+                img = m.get("image")
+                if sym and img and sym not in _symbol_image_map:
+                    _symbol_image_map[sym] = img
             if len(out) == len(target_syms):
                 break
             await asyncio.sleep(0.6)
@@ -623,7 +628,7 @@ async def history_cmd(interaction: discord.Interaction,
         usd = agg[s]["usd"]; qty = agg[s]["qty"]
         avg = (usd / qty) if qty else 0.0
         price = prices.get(s)
-        icon_url = f"https://cryptoicons.org/api/icon/{s.lower()}/128.png"
+        icon_url = _symbol_image_map.get(s) or f"https://cryptoicons.org/api/icon/{s.lower()}/128.png"
 
         if price is None or qty <= 0:
             e = Embed(
