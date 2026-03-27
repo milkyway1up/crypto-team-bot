@@ -45,14 +45,26 @@ The **bottom right** is the final combined score. The Sweet Spot coin (rank #150
 
 The bot checks every 10 minutes. An alert fires when a coin's price crosses a new multiple of your average cost (default 5×). Each crossing step only fires once.
 
-## Setup
+## Discord Setup
 
-```
+1. Go to [discord.com/developers/applications](https://discord.com/developers/applications) and click **New Application**
+2. Give it a name, then go to the **Bot** tab and click **Add Bot**
+3. Under **Privileged Gateway Intents**, enable **Message Content Intent**
+4. Copy the token — paste it into your `.env` as `DISCORD_TOKEN`
+5. Go to **OAuth2 → URL Generator**, select scopes: `bot` and `applications.commands`
+6. Under Bot Permissions select: `Send Messages`, `Embed Links`, `Attach Files`, `Read Message History`
+7. Copy the generated URL, open it in a browser, and invite the bot to your server
+8. In your server, right-click the server icon → **Copy Server ID** and set it as `GUILD_ID` in your `.env` (requires Developer Mode — enable it under Discord Settings → Advanced)
+9. Right-click your announcements channel → **Copy Channel ID** and set it as `ANNOUNCE_CHANNEL_ID`
+
+## Local Setup
+
+```bash
 cp .env.example .env
 # fill in .env
 
-python -m venv .venv
-source .venv/bin/activate
+python3 -m venv .venv
+source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 
 python bot.py
@@ -64,17 +76,80 @@ python bot.py
 DISCORD_TOKEN=
 GUILD_ID=
 ANNOUNCE_CHANNEL_ID=
-ANNOUNCE_THREAD_ID=      # optional
+ANNOUNCE_THREAD_ID=      # optional — post into a thread instead of the channel directly
 TEST_ALERT_2PCT=false    # set true to enable +2% test nudge alerts
 ```
 
 ## Deployment (systemd)
 
-The bot runs as a systemd service on the VM under the `cryptobot` user.
+For running the bot persistently on a Linux VM.
 
+**1. Create a dedicated user and clone the repo:**
 ```bash
-# Deploy updates
+sudo useradd -r -s /bin/false cryptobot
+sudo mkdir -p /opt/crypto-team-bot
+sudo chown cryptobot:cryptobot /opt/crypto-team-bot
+sudo -u cryptobot git clone https://github.com/milkyway1up/crypto-team-bot.git /opt/crypto-team-bot
+```
+
+**2. Install dependencies:**
+```bash
+cd /opt/crypto-team-bot
+sudo -u cryptobot python3 -m venv .venv
+sudo -u cryptobot .venv/bin/pip install -r requirements.txt
+```
+
+**3. Create your `.env`:**
+```bash
+sudo -u cryptobot cp .env.example .env
+sudo nano /opt/crypto-team-bot/.env   # fill in your values
+sudo chmod 600 /opt/crypto-team-bot/.env
+```
+
+**4. Create the systemd service** at `/etc/systemd/system/crypto-bot.service`:
+```ini
+[Unit]
+Description=Crypto Team Bot
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=cryptobot
+Group=cryptobot
+WorkingDirectory=/opt/crypto-team-bot
+
+Environment=PYTHONUNBUFFERED=1
+Environment=MPLBACKEND=Agg
+Environment=MPLCONFIGDIR=/opt/crypto-team-bot/.cache/matplotlib
+EnvironmentFile=/opt/crypto-team-bot/.env
+
+ExecStart=/opt/crypto-team-bot/.venv/bin/python /opt/crypto-team-bot/bot.py
+
+Restart=always
+RestartSec=5
+
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+PrivateTmp=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target
+```
+
+**5. Enable and start:**
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable crypto-bot.service
+sudo systemctl start crypto-bot.service
+sudo systemctl status crypto-bot.service
+```
+
+**Deploying updates:**
+```bash
+cd /opt/crypto-team-bot
 git pull
 sudo systemctl restart crypto-bot.service
-sudo systemctl status crypto-bot.service
 ```
