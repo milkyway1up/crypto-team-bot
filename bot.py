@@ -141,6 +141,7 @@ async def top_markets(session):
         if not ok_ath:
             continue
 
+        ath_discount = abs(ath_change_pct) if isinstance(ath_change_pct, (int, float)) and not math.isnan(ath_change_pct) else 50.0
         out.append({
             "id": c["id"],
             "symbol": sym,
@@ -148,6 +149,10 @@ async def top_markets(session):
             "rank": c.get("market_cap_rank"),
             "price": c.get("current_price"),
             "ath": c.get("ath"),
+            "ath_discount": ath_discount,
+            "price_change_24h": c.get("price_change_percentage_24h") or 0.0,
+            "volume": c.get("total_volume") or 0.0,
+            "market_cap": c.get("market_cap") or 1.0,
         })
 
     out = [x for x in sorted(out, key=lambda d: d["rank"] or 9999) if x["rank"]]
@@ -311,9 +316,45 @@ async def recent_symbols():
             out.add((s or "").upper())
     return out
 
+def _score_coin(c: dict) -> float:
+    """
+    Score a candidate coin for pick quality. Higher = better potential.
+    Weights toward: higher-ranked, moderate ATH discount, slight upward momentum, active volume.
+    """
+    score = 1.0
+
+    # Rank tier: top coins are more established / liquid
+    rank = c.get("rank") or 9999
+    if rank <= 100:   score *= 3.0
+    elif rank <= 300: score *= 2.0
+    elif rank <= 500: score *= 1.5
+
+    # ATH discount sweet spot: 40–75% below ATH = beaten down but not dead
+    # 90%+ below ATH usually means abandoned project
+    discount = c.get("ath_discount", 50.0)
+    if 40 <= discount <= 75:  score *= 2.0
+    elif discount > 90:       score *= 0.2
+
+    # 24h momentum: gentle uptrend preferred; avoid free-falling or already-parabolic
+    change_24h = c.get("price_change_24h", 0.0)
+    if 0 <= change_24h <= 10:   score *= 1.5   # slight green = good
+    elif change_24h > 20:       score *= 0.7   # already running hot
+    elif change_24h < -10:      score *= 0.6   # still dumping
+
+    # Volume / market cap ratio: prefer actively traded coins
+    volume = c.get("volume", 0.0)
+    market_cap = c.get("market_cap", 1.0) or 1.0
+    vol_ratio = volume / market_cap
+    if vol_ratio >= 0.05:   score *= 1.5   # healthy trading activity
+    elif vol_ratio < 0.01:  score *= 0.4   # very low activity = likely dead
+
+    return max(score, 0.01)
+
+
 async def pick_coin():
     """
-    Build candidate pool (filters + no-repeat), then choose 1 using a weekly seed.
+    Build candidate pool (filters + no-repeat), then choose 1 using a seeded
+    weighted-random draw that favours coins with better potential.
     """
     async with aiohttp.ClientSession() as session:
         cands = await top_markets(session)
@@ -327,7 +368,8 @@ async def pick_coin():
         seed = iso_week_seed()
         seed_int = int(hashlib.sha256(seed.encode()).hexdigest(), 16) % (2**32)
         rnd = random.Random(seed_int)
-        choice = rnd.choice(pool)
+        weights = [_score_coin(c) for c in pool]
+        choice = rnd.choices(pool, weights=weights, k=1)[0]
         return choice, seed, len(cands), len(pool)
 
 async def post_in_announce_channel(content: str | None = None, *, embed: discord.Embed | None = None, file: discord.File | None = None):
@@ -524,6 +566,8 @@ async def on_ready():
         print("Failed to sync commands:", e)
     scheduler.start()
     alert_watcher.start()
+    # Pre-warm the symbol ID map so /chart is fast from the first use
+    asyncio.ensure_future(get_symbol_id_map())
 
 # ============================================================
 # ============= 9) SLASH COMMANDS ============================
@@ -900,11 +944,15 @@ async def chart_cmd(interaction: discord.Interaction, symbol: str, days: str = "
 
     rows = await fetch_ohlc(sym, days=days)
     if not rows:
-        await interaction.followup.send(f"Couldn't fetch OHLC for **{sym}**.", ephemeral=True)
+        try:
+            await interaction.followup.send(f"Couldn't fetch OHLC for **{sym}**.", ephemeral=True)
+        except Exception:
+            pass
         return
 
     try:
-        png = make_candle_png(rows, sym, ma=ma_tuple)
+        loop = asyncio.get_event_loop()
+        png = await loop.run_in_executor(None, lambda: make_candle_png(rows, sym, ma=ma_tuple))
         file = discord.File(png, filename=f"{sym}_{days}d.png")
         embed = Embed(
             title=f"{sym} chart",
@@ -913,8 +961,13 @@ async def chart_cmd(interaction: discord.Interaction, symbol: str, days: str = "
         )
         embed.set_image(url=f"attachment://{sym}_{days}d.png")
         await interaction.followup.send(embed=embed, file=file)
+    except discord.NotFound:
+        print(f"[chart] interaction expired before reply could be sent ({sym})")
     except Exception as e:
-        await interaction.followup.send(f"Chart render failed: `{e}`", ephemeral=True)
+        try:
+            await interaction.followup.send(f"Chart render failed: `{e}`", ephemeral=True)
+        except Exception:
+            pass
 
 # ============================================================
 # ============= 10) SCHEDULER (biweekly pick) =================
