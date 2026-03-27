@@ -329,11 +329,12 @@ def _score_coin(c: dict) -> float:
     elif rank <= 300: score *= 2.0
     elif rank <= 500: score *= 1.5
 
-    # ATH discount sweet spot: 40–75% below ATH = beaten down but not dead
-    # 90%+ below ATH usually means abandoned project
+    # ATH discount sweet spot: 35–80% below ATH = beaten down but not dead
+    # 95%+ below ATH usually means abandoned project (raised from 90% — many
+    # legitimate top-300 coins are 90-94% below ATH after bear markets)
     discount = c.get("ath_discount", 50.0)
-    if 40 <= discount <= 75:  score *= 2.0
-    elif discount > 90:       score *= 0.2
+    if 35 <= discount <= 80:  score *= 2.0
+    elif discount > 95:       score *= 0.4
 
     # 24h momentum: gentle uptrend preferred; avoid free-falling or already-parabolic
     change_24h = c.get("price_change_24h", 0.0)
