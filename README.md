@@ -1,61 +1,80 @@
-# crypto-team-bot
+# Crypto Team Trading View
 
-A Discord bot for tracking a group crypto portfolio, generating biweekly coin picks, and posting price alerts.
+A Discord bot for tracking group crypto portfolios, generating AI-weighted biweekly coin picks, and posting price alerts. Optional Coinbase integration for live portfolio sync.
 
 ## Commands
 
-| Command | Description |
-|---|---|
-| `/buy` | Log a group buy — symbol, USD spent, quantity, optional date |
-| `/history` | Portfolio summary with live P/L per coin. Pass `include_buys:true` for individual entries |
-| `/removebuy` | Delete a logged buy by row ID (get the ID from `/history`) |
-| `/pick` | Run the weighted pick algorithm manually and post the result |
-| `/chart` | Candlestick chart for any coin. Options: `days` (1/7/14/30/90/180/365/max), `ma` (e.g. `7,20`) |
-| `/alertx` | Set the X-multiple alert threshold globally or per symbol (e.g. `multiple:5`) |
-| `/removealert` | Remove a per-symbol alert override, falls back to global default |
-| `/alerts` | List all alert rules and the last step fired for each |
-| `/alertstatus` | Show per-coin alert math — cost, price, multiple, next target |
-| `/checkalerts` | Trigger an alert check immediately instead of waiting for the 10-minute loop |
-| `/ping` | Health check |
+| Command | Visibility | Description |
+|---|---|---|
+| `/wallet` | Private | Portfolio dashboard — rendered as an image card with live prices, 24h change, and P/L |
+| `/pick` | Public | AI-weighted coin pick. Heavily favors AI/utility tokens, penalizes meme coins |
+| `/buy` | Private | Log a purchase — symbol, USD spent, quantity, optional date |
+| `/removebuy` | Private | Delete a logged buy by row ID |
+| `/connect-coinbase` | Private | Link your Coinbase read-only API key via a secure modal form |
+| `/disconnect-coinbase` | Private | Remove your stored Coinbase API keys |
+| `/chart` | Public | Candlestick chart for any coin (1d to max timeframe, optional moving averages) |
+| `/alertx` | Private | Set the X-multiple alert threshold globally or per symbol |
+| `/alerts` | Private | List all alert rules and the last step fired for each |
 
-## Biweekly Pick
+## Wallet
 
-Every other Friday at 10:00 UTC the bot automatically posts a pick to the announce channel.
+`/wallet` renders a dark-themed dashboard card as an image:
 
-The pick uses a **weighted random** draw — not pure random. Each candidate is scored on:
+- Sorted by value, shows price, value, 24h change, and P/L per coin
+- If you've linked Coinbase: pulls live balances automatically, merges cost basis from local `/buy` log
+- If not linked: uses your local buy log only
+- Buttons: **Refresh** (re-fetches prices) and **Show Buys** (shows your buy log)
+- Ephemeral — only you can see it
 
-- **Rank** — top 100 = 3×, top 300 = 2×, top 500 = 1.5×
-- **ATH Discount** — 35–80% below ATH = 2× boost; 95%+ below (likely dead project) = 0.4× penalty
-- **24h Momentum** — gentle uptrend (0–10%) = 1.5×; already pumping (>20%) or dumping (<-10%) = penalized
-- **Volume/MCap ratio** — active trading (>5%) = 1.5×; ghost coin (<1%) = 0.4× penalty
+## Pick Algorithm
 
-Filters applied before scoring: no stablecoins, no BTC/ETH/DOGE, must be Coinbase-listed, must be ≥30% below ATH, no repeats within 8 weeks.
+Every other Friday at 10:00 UTC the bot automatically posts a pick to the announce channel. `/pick` runs it manually.
 
-### Scoring Visualised
+The pick uses a **weighted random** draw. Each candidate is scored on:
+
+- **Category** (strongest factor):
+  - AI tokens (artificial-intelligence, ai-agents, ai-applications, ai-framework, bittensor, etc.): **5x boost**
+  - Meme tokens (meme-token, dog/cat/frog-themed, solana-meme, etc.): **0.05x penalty**
+- **Rank** — top 100 = 3x, top 300 = 2x, top 500 = 1.5x
+- **ATH Discount** — 35-80% below ATH = 2x boost; 95%+ below = 0.4x penalty
+- **24h Momentum** — gentle uptrend (0-10%) = 1.5x; pumping (>20%) or dumping (<-10%) = penalized
+- **Volume/MCap ratio** — active trading (>5%) = 1.5x; ghost coin (<1%) = 0.4x penalty
+
+Filters: no stablecoins, no BTC/ETH/DOGE, Coinbase-listed only, 30%+ below ATH, no repeats within 8 weeks.
+
+Result: AI tokens hold ~48% of pick weight with ~23 coins, while meme coins hold ~0.3% despite ~15 coins in the pool.
+
+### Scoring Visualized
 
 ![Pick Scoring Breakdown](score_demo.png)
 
-The **top row** shows how each factor's multiplier changes across its range — the green shaded zones are the sweet spots. Each coloured dot is one of the five example coins plotted against that factor.
+The **top row** shows how each factor's multiplier changes across its range. The Category chart shows the dominant effect — AI tokens get a 5x boost while meme coins are reduced to 0.05x. The remaining four charts show Rank, ATH Discount, Momentum, and Volume sweet spots.
 
-The **bottom left** radar shows all four multipliers at once per coin — a coin that fills out all four axes is getting boosted on every factor.
+The **bottom left** radar shows all five multipliers at once per coin. The **bottom right** bar chart is the final combined score — TAO and KITE (AI tokens) score 45x while a meme coin scores 0.7x.
 
-The **bottom right** is the final combined score. The Sweet Spot coin (rank #150, 62% below ATH, slight uptrend, active volume) scores 9× while the Dead Coin (rank #800, 97% below ATH, dumping, no volume) scores 0.10×. Higher score = higher probability of being selected, but it's still random so lower-scored coins can still win.
+## Coinbase Integration
+
+Users can optionally link their Coinbase account for live portfolio tracking:
+
+1. Create a **read-only** API key at [portal.cdp.coinbase.com](https://portal.cdp.coinbase.com/access/api)
+2. Whitelist your server IP in the key settings
+3. Run `/connect-coinbase` in Discord — a secure modal form opens (keys never visible in chat)
+4. Keys are encrypted at rest in SQLite using Fernet (derived from the bot token)
 
 ## Alerts
 
-The bot checks every 10 minutes. An alert fires when a coin's price crosses a new multiple of your average cost (default 5×). Each crossing step only fires once.
+The bot checks every 10 minutes. An alert fires when a coin's price crosses a new multiple of your average cost (default 5x). Each crossing step only fires once.
 
 ## Discord Setup
 
 1. Go to [discord.com/developers/applications](https://discord.com/developers/applications) and click **New Application**
-2. Give it a name, then go to the **Bot** tab and click **Add Bot**
+2. Go to the **Bot** tab and click **Add Bot**
 3. Under **Privileged Gateway Intents**, enable **Message Content Intent**
-4. Copy the token — paste it into your `.env` as `DISCORD_TOKEN`
-5. Go to **OAuth2 → URL Generator**, select scopes: `bot` and `applications.commands`
+4. Copy the token into your `.env` as `DISCORD_TOKEN`
+5. Go to **OAuth2 > URL Generator**, select scopes: `bot` and `applications.commands`
 6. Under Bot Permissions select: `Send Messages`, `Embed Links`, `Attach Files`, `Read Message History`
 7. Copy the generated URL, open it in a browser, and invite the bot to your server
-8. In your server, right-click the server icon → **Copy Server ID** and set it as `GUILD_ID` in your `.env` (requires Developer Mode — enable it under Discord Settings → Advanced)
-9. Right-click your announcements channel → **Copy Channel ID** and set it as `ANNOUNCE_CHANNEL_ID`
+8. Copy your server ID and announcement channel ID into `.env`
 
 ## Local Setup
 
@@ -76,80 +95,38 @@ python bot.py
 DISCORD_TOKEN=
 GUILD_ID=
 ANNOUNCE_CHANNEL_ID=
-ANNOUNCE_THREAD_ID=      # optional — post into a thread instead of the channel directly
+ANNOUNCE_THREAD_ID=      # optional — post into a thread instead of the channel
 TEST_ALERT_2PCT=false    # set true to enable +2% test nudge alerts
+CG_API_KEY=              # optional — free CoinGecko Demo key for 100 calls/min (vs 5-15 without)
 ```
 
-## Deployment (systemd)
+## Deployment
 
-For running the bot persistently on a Linux VM.
+The bot runs on a Linux VPS with systemd.
 
-**1. Create a dedicated user and clone the repo:**
-```bash
-sudo useradd -r -s /bin/false cryptobot
-sudo mkdir -p /opt/crypto-team-bot
-sudo chown cryptobot:cryptobot /opt/crypto-team-bot
-sudo -u cryptobot git clone https://github.com/milkyway1up/crypto-team-bot.git /opt/crypto-team-bot
-```
-
-**2. Install dependencies:**
-```bash
-cd /opt/crypto-team-bot
-sudo -u cryptobot python3 -m venv .venv
-sudo -u cryptobot .venv/bin/pip install -r requirements.txt
-```
-
-**3. Create your `.env`:**
-```bash
-sudo -u cryptobot cp .env.example .env
-sudo nano /opt/crypto-team-bot/.env   # fill in your values
-sudo chmod 600 /opt/crypto-team-bot/.env
-```
-
-**4. Create the systemd service** at `/etc/systemd/system/crypto-bot.service`:
+**Service file** at `/etc/systemd/system/crypto-bot.service`:
 ```ini
 [Unit]
-Description=Crypto Team Bot
+Description=Crypto Team Trading View Discord Bot
 Wants=network-online.target
 After=network-online.target
 
 [Service]
 Type=simple
-User=cryptobot
-Group=cryptobot
-WorkingDirectory=/opt/crypto-team-bot
-
+WorkingDirectory=/opt/crypto-bot
 Environment=PYTHONUNBUFFERED=1
 Environment=MPLBACKEND=Agg
-Environment=MPLCONFIGDIR=/opt/crypto-team-bot/.cache/matplotlib
-EnvironmentFile=/opt/crypto-team-bot/.env
-
-ExecStart=/opt/crypto-team-bot/.venv/bin/python /opt/crypto-team-bot/bot.py
-
+EnvironmentFile=/opt/crypto-bot/.env
+ExecStart=/opt/crypto-bot/.venv/bin/python /opt/crypto-bot/bot.py
 Restart=always
 RestartSec=5
-
-NoNewPrivileges=true
-ProtectSystem=full
-ProtectHome=true
-PrivateTmp=true
-LockPersonality=true
 
 [Install]
 WantedBy=multi-user.target
 ```
 
-**5. Enable and start:**
+**Deploy updates:**
 ```bash
-sudo systemctl daemon-reload
-sudo systemctl enable crypto-bot.service
-sudo systemctl start crypto-bot.service
-sudo systemctl status crypto-bot.service
-```
-
-**Deploying updates:**
-```bash
-cd /opt/crypto-team-bot
-git pull
-sudo systemctl restart crypto-bot.service
+scp bot.py root@164.90.140.209:/opt/crypto-bot/bot.py
+ssh root@164.90.140.209 "systemctl restart crypto-bot.service"
 ```

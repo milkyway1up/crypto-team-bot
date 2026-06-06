@@ -5,3 +5,5 @@ aiosqlite
 pandas
 matplotlib
 mplfinance
+coinbase-advanced-py
+cryptography
